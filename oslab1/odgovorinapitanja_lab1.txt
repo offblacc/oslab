@@ -1,0 +1,63 @@
+LAB1 pitanja (iz datoteke Primjeri-pitanja-za-laboratorijske-vjezbe-2020-2021.txt sa http://www.zemris.fer.hr/predmeti/os/ ; sadrži i pitanja za drugi labos ali ovo je cuttano samo dio za prvi labos)
+! Očito je prošlogodišnji (ili stariji) primjer pitanja "vezano uz vježbe" pa sam i to izrezao, nemamo a) i b) zadatak + ovo što i postoji u "Vezano uz vježbe" nije baš povezano s našim labosom. Kad bi trebalo ta pitanja pretvorit u pitanja za ovaj labos, bilo bi ništa više nego eto znaj sve demonstrirat i objasnit.
+
+Općenito:
+1. Kako poslati signal procesu:
+   a) preko tipkovnice
+   b) iz ljuske
+2. Navesti nekoliko signala i čemu služe.
+3. Što radi funkcija: sigset, sighold, sigrelse? Opisati argumente. // mi ne koristimo ovo
+4. Što se sve može postići sa sigset (koja sve ponašanja, što treba staviti kao argumente)? // ni ovo
+5. Opisati postupak prihvata signala.
+6. Kad se signal neće prihvatiti?
+7. Ako je programu poslan signal SIGINT za vrijeme čekanja na funkciji sleep(10), što će se dogoditi nakon povratka iz obrade signala? Hoće li program "odspavati" neprospavano vrijeme ili ne? Zašto?
+
+Sva ova pitanja se mogu pitati i obrnuto, npr. umjesto pitanja što radi sighold, može se pitati kojom se funkcijom zabranjuje daljnje prekidanje nekim signalom...
+
+==================================ODGOVORI===================================
+
+1. Slanje signala procesu
+a) Preko tipkovnice možemo poslati SIGINT sa CTRL+C (postoje još i SIGQUIT: CTRL+\ i SIGTSTP: CTRL+Z ali njih nismo ni spominjali na nastavi)
+b) Slanje signala iz ljuske obavlja se komandom `kill -<id_signala> <pid>`, gdje signal može biti ime signala ili njegov kod (SIGKILL: 9, SIGINT: 2, SIGUSR1: 10 i ostali koje nismo spominjali)
+   Primjeri:
+   kill -SIGKILL 12345 | kill -9 12345
+   kill -SIGINT 12345  | kill -2 12345
+   kill -SIGTERM 12345 | kill -15 12345
+   kill -SIGUSR1 12345 | kill -10 12345
+
+2. Navesti nekoliko signala i čemu služe
+   SIGKILL: Prisilno završava proces, ne daje priliku procesu da počisti za sobom. Ne može se uhvatiti ni obraditi, sam proces tu nema glas, OS ga praktički yeeta i to je to.
+   
+   SIGINT: Interrupt, završava proces. On se za razliku od kill signala (SIGKILL/9) može u programu overrideati odnosno svaki program može definirati svoje custom ponašanje procesa nakon primanja signala SIGINT. Najčešće je to nasilan prekid zbog neke greške u izvođenju procesa.
+   
+   SIGTERM: Terminira proces. Bolje rečeno također ga prekida, ali ne zbog grešaka u programu već jednostavno gasi proces (npr. pri gašenju računala), ne gasi ga nasilno. 
+
+   SIGUSR1: Korisnički signal 1. Nema predefiniranu funkciju. Koristimo za naše potpuno proizvoljne funkcionalnosti.
+
+3. Što rade funkcije: objašnjenja onoga što smo mi koristili 
+
+   struct sigaction act; - radi strukturu sigaction imena act, u nju cemo staviti "postavke" za obradu signala i onda cemo taj act slati kao jedan od parametara u funkciju sigaction koja mijenja funkcije signala
+  
+   act.sa_handler = imefunkcije; -> dajemo mu adresu funkcije koja se poziva kod primitka signala (ako ne stavimo zagrade '()' ne pozivamo funkciju već dobivamo njezinu adresu)
+   
+   sigemptyset(&act.sa_mask); -> očisti sve u sa_mask strukture sigaction act, time omogućavajući da ovaj signal handler bude prekinut drugim signalima. Iz dokumentacije: sigemptyset() initializes the signal set given by set (ono što mu daš kao parametar) to empty, with all signals excluded from the set, što znači da smo odmaskirali sve signale/ni jedan nije u setu, što pak znači da svaki mogući signal može prekinuti ovaj signal čiju obradu trenutno specificiramo u strukturi sigaction act.
+   
+   sigaddset(&act.sa_mask, SIGTERM); -> u set signala koje maskiramo, odnosno u set signala koje blokiramo (za vrijeme obrade onog signala čiju obradu sad specificiramo u act) dodajemo SIGTERM, jer ne želimo da SIGTERM (nenasilno gašenje procesa) može prekinuti SIGINT (nasilno gašenje najčešće korišteno zbog toga što je došlo do neke pogreške)
+   
+   act.sa_flags = 0; -> ne trebamo znat, ovim smo samo nešto više advanced isključili
+   
+   Za referencu liniji ispod: int sigaction(int signum, const struct sigaction *restrict act, struct sigaction *restrict oldact);
+   sigaction(SIGUSR1, &act, NULL); -> napokon, pozivamo funkciju sigaction koja postavlja obradu signala SIGUSR1 (u ovom primjeru) na ono što smo specificirali u act (struct sigaction act)
+
+==Sad više nisu odgovori redom na pitanja nego općenitije odgovori na potencijalna pitanja==
+
+Bitan dio iz lab pdf-a. Po primitku signala skače se u funkciju za obradu, a po dovršetku obrade vraća tamo gdje se stalo (u petlju u main). Pri prihvatu prekida automatski je pohranjen kontekst dretve u tom trenutku prije nego ona krene s obradom signala. Taj se kontekst poslije obnavlja i dretva normalno nastavlja s radom.
+Ako za vrijeme obrade signala dođe novi signal ISTOG tipa, on se privremeno blokira i obrađuje naknadno. Da smo još neki signal maskirali i on se pojavo prilikom obrade prvog signala on bi se također obradio naknadno, umjesto da prekine obradu ovog signala.
+Ponašanje signala na proces može biti:
+  1. obrada na pretpostavljeni način, defaultni način, kad mi nismo specificirali vlastitu obradu signala
+  2. obrada zadanom funkcijom (npr. kako smo mi 'overrideali' SIGUSR1, SIGINT i SIGTERM)
+  3. signal je privremeno blokiran (zato se već obrađuje isti i čekamo da se obrada prvog završi, ili je ručno blokiran, kao što smo mi napravili sa SIGINT za SIGTERM)
+  4. signal se ignorira
+
+Ako želimo ignorirati signal, umjesto adrese funkcije koja obrađuje prekid stavimo konstantu SIG_IGN. Za ponašanje 1 SIG_DFL. Za 2 stavimo adresu funkcije, odnosno kao što smo radili u labosu. Ponašanje za 3 ovisi o signalu koji se trenutno obrađuje.
+sleep(unsigned int seconds); -> radi tako da pozove alarm(x) koji pošalje signal nakon x sekundi, i onda pauzira svoje izvođenje s pause(). No ako prije isteka vremena dretva primi neki signal, ona će se odpauzirati, obraditi signal i nastaviti s radom. pause() samo čeka signal, i 'nada se' da će to biti upravo signal od alarm(x) koji će nakon x vremena poslati signal dretvi.
