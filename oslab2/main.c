@@ -11,6 +11,13 @@ int *shared_variable;
 int global_variable;
 int inputs_num;
 
+void process_sigint(int sig) {
+    (void)shmdt((char *)shared_variable);
+    (void)shmctl(seg_id, IPC_RMID, NULL);
+    printf("Primio sigint, brišem zajednički spremnik\n");
+    exit(1);
+}
+
 void *thread_out() {
     printf("Pokrenuta izlazna dretva\n");
     FILE *output = fopen("output.txt", "w");
@@ -28,11 +35,19 @@ void *thread_out() {
 }
 
 int main(int argc, char **argv) {
+    struct sigaction act;
+    act.sa_handler = process_sigint;
+    sigemptyset(&act.sa_mask);
+    sigaddset(&act.sa_mask, SIGTERM);
+    act.sa_flags = 0;
+    sigaction(SIGINT, &act, NULL);
+
     if (argc == 1) {
         printf("At least one argument required!\n");
         exit(0);
     }
-    printf("Pokrenut glavni proces\n");
+
+    printf("Pokrenuta ulazna dretva\n");
     srand(time(NULL));
 
     seg_id = shmget(IPC_PRIVATE, sizeof(int), 0600);
@@ -76,10 +91,10 @@ int main(int argc, char **argv) {
         printf("\nUlazna dretva: broj %d\n", num_generated);
         *shared_variable = num_generated;
     }
-    
+
     printf("Završila ulazna dretva\n");
-    (void)wait(NULL); // tek nakon sto dijete proces zavrsi
-    (void)shmdt((char *)shared_variable); // otpusti zajednicki segment
+    (void)wait(NULL);                      // tek nakon sto dijete proces zavrsi
+    (void)shmdt((char *)shared_variable);  // otpusti zajednicki segment
     (void)shmctl(seg_id, IPC_RMID, NULL);
     return 0;
 }
