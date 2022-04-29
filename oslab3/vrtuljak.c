@@ -20,6 +20,14 @@ void *thread_visitor(void *x) {
     printf("A visitor boarded the carousel.\n");
 }
 
+/*
+ * The last for loop contains a sleep call for two reasons:
+ * 1. printf calls take some time to execute, and printing to stdout after passing through semaphores from multiple threads at a time
+ * won't necessarily print in the same order as the threads are executed
+ * 2. for a better feeling of 'ok, the carousel is now spinning'
+ * The funcionality of the sleep right after the for loop has aesthetic purposes only, you can imagine it to represent the time 
+ * necessary for the carousel to stop and visitors to get out
+ */
 void *thread_carousel(void *x) {
     printf("Thread carousel started\n");
     while (true) {
@@ -31,8 +39,11 @@ void *thread_carousel(void *x) {
         }
         printf("Carousel is ready.\n");
         for (int i = 1; i <= 5; i++) {
+            sleep(1);
             printf("Carousel is spinning (%d).\n", i);
         }
+        sleep(1);
+        printf("Visitors are now leaving the carousel.\n");
     }
 }
 
