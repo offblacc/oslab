@@ -1,12 +1,11 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <stdbool.h>
 
-int terminate_threads = 0;
 int seats_num, visitors_num;
 sem_t seats_sem, start_carousel_sem;
 
@@ -18,12 +17,15 @@ void *thread_visitor(void *x) {
     printf("Thread visitor started\n");
     sem_wait(&seats_sem);
     sem_post(&start_carousel_sem);
-    printf("Boarded the carousel.\n");
+    printf("A visitor boarded the carousel.\n");
 }
 
 void *thread_carousel(void *x) {
+    printf("Thread carousel started\n");
     while (true) {
-        printf("Thread carousel started\n");
+        for (int i = 0; i < seats_num; i++) {
+            sem_post(&seats_sem);
+        }
         for (int i = 0; i < seats_num; i++) {
             sem_wait(&start_carousel_sem);
         }
@@ -31,7 +33,6 @@ void *thread_carousel(void *x) {
         for (int i = 1; i <= 5; i++) {
             printf("Carousel is spinning (%d).\n", i);
         }
-
     }
 }
 
@@ -61,15 +62,15 @@ int main(int argc, char **argv) {
         exit(0);
     }
 
-    pthread_t thr_id[argc];              // create array of thread ids
-    sem_init(&seats_sem, 0, seats_num);  // init semaphore to number of seats on the carousel
+    pthread_t thr_id[argc];      // create array of thread ids
+    sem_init(&seats_sem, 0, 0);  // init semaphore seats_sem
 
-    sem_init(&start_carousel_sem, 0, 0);  // this will be awaited by the carousel, signalizing him to check if he can start
+    sem_init(&start_carousel_sem, 0, 0);  // init semaphore start_carousel_sem
 
     // create all threads
     pthread_create(&thr_id[0], NULL, thread_carousel, NULL);
     for (int i = 1; i <= visitors_num; i++) {  // thr_id[0] je rezervirano za vrtuljak, pa ide od 1 do visitors_num, ukljucivo
-        pthread_create(&thr_id[i], NULL, thread_visitor, &i);
+        pthread_create(&thr_id[i], NULL, thread_visitor, NULL);
     }
 
     // wait for all threads to finish
