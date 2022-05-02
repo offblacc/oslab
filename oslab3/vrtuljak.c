@@ -17,7 +17,7 @@ void process_sigint(int sig) {
         printf("\n\nPARENT PROCESS: SIGINT received, currently boarded visitors: %d.\n", seats_num - free);
         printf("Exiting all child processes and parent process...\n");
     }
-    exit(1);
+    exit(0);
 }
 
 int main(int argc, char **argv) {
@@ -45,23 +45,23 @@ int main(int argc, char **argv) {
         exit(0);
     }
 
-    int seg_id[4];
+    int seg_id;
 
-    seg_id[0] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id[0] == -1) exit(1);
-    seats_free = (sem_t *)shmat(seg_id[0], NULL, 0);
+    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id == -1) exit(1);
+    seats_free = (sem_t *)shmat(seg_id, NULL, 0);
 
-    seg_id[1] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id[1] == -1) exit(1);
-    seats_taken = (sem_t *)shmat(seg_id[1], NULL, 0);
+    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id == -1) exit(1);
+    seats_taken = (sem_t *)shmat(seg_id, NULL, 0);
 
-    seg_id[2] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id[2] == -1) exit(1);
-    allowed_out = (sem_t *)shmat(seg_id[2], NULL, 0);
+    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id == -1) exit(1);
+    allowed_out = (sem_t *)shmat(seg_id, NULL, 0);
 
-    seg_id[3] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id[3] == -1) exit(1);
-    out = (sem_t *)shmat(seg_id[3], NULL, 0);
+    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id == -1) exit(1);
+    out = (sem_t *)shmat(seg_id, NULL, 0);
 
     sem_init(seats_free, 1, 0);
     sem_init(seats_taken, 1, 0);
@@ -71,7 +71,6 @@ int main(int argc, char **argv) {
     // ------------- child processes, visitors -------------
     for (int i = 0; i < visitors_num; i++) {
         if (fork() == 0) {
-            // visitor process
             sem_wait(seats_free);
             sem_post(seats_taken);
             printf("Visitor %d is now on the carousel.\n", i + 1);
@@ -85,14 +84,12 @@ int main(int argc, char **argv) {
     // ------------- parent process, carousel --------------
     parent_pid = getpid();
     while (true) {
-        // carousel process
         for (int i = 0; i < seats_num; i++) {
             sem_post(seats_free);
         }
         for (int i = 0; i < seats_num; i++) {
             sem_wait(seats_taken);
         }
-
         sleep(1);
         printf("Carousel is ready.\n");
         for (int i = 1; i <= 5; i++) {
@@ -101,7 +98,6 @@ int main(int argc, char **argv) {
         }
         sleep(1);
         printf("Carousel is stopped, visitors are now leaving the carousel.\n");
-
         for (int i = 0; i < seats_num; i++) {
             sem_post(allowed_out);
         }
