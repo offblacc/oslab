@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/shm.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 int parent_pid;
@@ -45,23 +46,23 @@ int main(int argc, char **argv) {
         exit(0);
     }
 
-    int seg_id;
+    int seg_id[4];
 
-    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id == -1) exit(1);
-    seats_free = (sem_t *)shmat(seg_id, NULL, 0);
+    seg_id[0] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[0] == -1) exit(1);
+    seats_free = (sem_t *)shmat(seg_id[0], NULL, 0);
 
-    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id == -1) exit(1);
-    seats_taken = (sem_t *)shmat(seg_id, NULL, 0);
+    seg_id[1] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[1] == -1) exit(1);
+    seats_taken = (sem_t *)shmat(seg_id[1], NULL, 0);
 
-    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id == -1) exit(1);
-    allowed_out = (sem_t *)shmat(seg_id, NULL, 0);
+    seg_id[2] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[2] == -1) exit(1);
+    allowed_out = (sem_t *)shmat(seg_id[2], NULL, 0);
 
-    seg_id = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
-    if (seg_id == -1) exit(1);
-    out = (sem_t *)shmat(seg_id, NULL, 0);
+    seg_id[3] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[3] == -1) exit(1);
+    out = (sem_t *)shmat(seg_id[3], NULL, 0);
 
     sem_init(seats_free, 1, 0);
     sem_init(seats_taken, 1, 0);
@@ -104,5 +105,17 @@ int main(int argc, char **argv) {
         for (int i = 0; i < seats_num; i++) {
             sem_wait(out);
         }
+    }
+
+    // ------------- cleanup -------------
+    for (int i = 0; i < visitors_num; i++) {
+        (void)wait(NULL);
+    }
+    (void)shmdt((char *)seats_free);
+    (void)shmdt((char *)seats_taken);
+    (void)shmdt((char *)allowed_out);
+    (void)shmdt((char *)out);
+    for (int i = 0; i < visitors_num; i++) {
+        (void)shmctl(seg_id[i], IPC_RMID, NULL);
     }
 }
