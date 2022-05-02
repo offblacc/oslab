@@ -1,61 +1,33 @@
-#include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/shm.h>
 #include <unistd.h>
 
+int parent_pid;
 int seats_num, visitors_num;
-sem_t seats_sem, start_carousel_sem;
+sem_t *seats_free, *seats_taken, *allowed_out, *out;
 
 void process_sigint(int sig) {
+    int free;
+    sem_getvalue(seats_free, &free);
+    if (getpid() == parent_pid) {
+        printf("\n\nPARENT PROCESS: SIGINT received, currently boarded visitors: %d.\n", seats_num - free);
+        printf("Exiting all child processes and parent process...\n");
+    }
     exit(1);
 }
 
-void *thread_visitor(void *x) {
-    printf("Thread visitor started\n");
-    sem_wait(&seats_sem);
-    sem_post(&start_carousel_sem);
-    printf("A visitor boarded the carousel.\n");
-}
-
-/*
- * The last for loop contains a sleep call for two reasons:
- * 1. printf calls take some time to execute, and printing to stdout after passing through semaphores from multiple threads at a time
- * won't necessarily print in the same order as the threads are executed
- * 2. for a better feeling of 'ok, the carousel is now spinning'
- * The funcionality of the sleep right after the for loop has aesthetic purposes only, you can imagine it to represent the time 
- * necessary for the carousel to stop and visitors to get out
- */
-void *thread_carousel(void *x) {
-    printf("Thread carousel started\n");
-    while (true) {
-        for (int i = 0; i < seats_num; i++) {
-            sem_post(&seats_sem);
-        }
-        for (int i = 0; i < seats_num; i++) {
-            sem_wait(&start_carousel_sem);
-        }
-        printf("Carousel is ready.\n");
-        for (int i = 1; i <= 5; i++) {
-            sleep(1);
-            printf("Carousel is spinning (%d).\n", i);
-        }
-        sleep(1);
-        printf("Visitors are now leaving the carousel.\n");
-    }
-}
-
 int main(int argc, char **argv) {
-    // process sigint signal
     struct sigaction act;
     act.sa_handler = process_sigint;
     sigemptyset(&act.sa_mask);
     sigaddset(&act.sa_mask, SIGTERM);
     act.sa_flags = 0;
     sigaction(SIGINT, &act, NULL);
-    // ---- check if input is valid ----
+
     if (argc != 3) {
         printf("Two (2) arguments required, number of seats on the carousel and number of visitors (in that order)\n");
         exit(0);
@@ -73,21 +45,68 @@ int main(int argc, char **argv) {
         exit(0);
     }
 
-    pthread_t thr_id[argc];      // create array of thread ids
-    sem_init(&seats_sem, 0, 0);  // init semaphore seats_sem
+    int seg_id[4];
 
-    sem_init(&start_carousel_sem, 0, 0);  // init semaphore start_carousel_sem
+    seg_id[0] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[0] == -1) exit(1);
+    seats_free = (sem_t *)shmat(seg_id[0], NULL, 0);
 
-    // create all threads
-    pthread_create(&thr_id[0], NULL, thread_carousel, NULL);
-    for (int i = 1; i <= visitors_num; i++) {  // thr_id[0] je rezervirano za vrtuljak, pa ide od 1 do visitors_num, ukljucivo
-        pthread_create(&thr_id[i], NULL, thread_visitor, NULL);
+    seg_id[1] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[1] == -1) exit(1);
+    seats_taken = (sem_t *)shmat(seg_id[1], NULL, 0);
+
+    seg_id[2] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[2] == -1) exit(1);
+    allowed_out = (sem_t *)shmat(seg_id[2], NULL, 0);
+
+    seg_id[3] = shmget(IPC_PRIVATE, sizeof(sem_t), 0600);
+    if (seg_id[3] == -1) exit(1);
+    out = (sem_t *)shmat(seg_id[3], NULL, 0);
+
+    sem_init(seats_free, 1, 0);
+    sem_init(seats_taken, 1, 0);
+    sem_init(allowed_out, 1, 0);
+    sem_init(out, 1, 0);
+
+    // ------------- child processes, visitors -------------
+    for (int i = 0; i < visitors_num; i++) {
+        if (fork() == 0) {
+            // visitor process
+            sem_wait(seats_free);
+            sem_post(seats_taken);
+            printf("Visitor %d is now on the carousel.\n", i + 1);
+            sem_wait(allowed_out);
+            sem_post(out);
+            printf("Visitor %d is leaving the carousel.\n", i + 1);
+            exit(0);
+        }
     }
 
-    // wait for all threads to finish
-    for (int i = 0; i < visitors_num + 1; i++) {
-        pthread_join(thr_id[i], NULL);
-    }
+    // ------------- parent process, carousel --------------
+    parent_pid = getpid();
+    while (true) {
+        // carousel process
+        for (int i = 0; i < seats_num; i++) {
+            sem_post(seats_free);
+        }
+        for (int i = 0; i < seats_num; i++) {
+            sem_wait(seats_taken);
+        }
 
-    return 0;
+        sleep(1);
+        printf("Carousel is ready.\n");
+        for (int i = 1; i <= 5; i++) {
+            sleep(1);
+            printf("Carousel is spinning (%d).\n", i);
+        }
+        sleep(1);
+        printf("Carousel is stopped, visitors are now leaving the carousel.\n");
+
+        for (int i = 0; i < seats_num; i++) {
+            sem_post(allowed_out);
+        }
+        for (int i = 0; i < seats_num; i++) {
+            sem_wait(out);
+        }
+    }
 }
