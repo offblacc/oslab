@@ -69,6 +69,8 @@ int main(int argc, char **argv) {
     sem_init(allowed_out, 1, 0);
     sem_init(out, 1, 0);
 
+    printf("Terminate program by sending sigint (ctrl+c) when all visitors get their ride (or there are a few visitors left waiting indefinately on the carousel because there are not enough of them).\n");
+
     // ------------- child processes, visitors -------------
     for (int i = 0; i < visitors_num; i++) {
         if (fork() == 0) {
