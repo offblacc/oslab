@@ -4,9 +4,9 @@ import signal
 import time
 from random import randint as rndint
 
+PG_SIZE = 64
 MIN_PROCESS_SIZE = 32
-MAX_PROCESS_SIZE = 640
-VEL_STR = 64
+MAX_PROCESS_SIZE = 10 * PG_SIZE
 
 
 def sigint_handler(signum, frame):
@@ -14,39 +14,32 @@ def sigint_handler(signum, frame):
 
 
 def find_lru(processes, frames_num):
-    # try to find an empty frame
     frames = [i for i in range(frames_num)]
-    print(f"-------entered find_lru, frames is {frames}")
     for process in processes:
         for page_num in range(len(process.tablica_stranicenja)):
             if process.tablica_stranicenja[page_num] & 0x20:
-                print(format(process.tablica_stranicenja[page_num] & 0x20, '016b'))
-                print(f"that is index {int(str(format(process.tablica_stranicenja[page_num] >> 12, '04b'))[::-1], 2)}")
-                print(
-                    f"removing {format(process.tablica_stranicenja[page_num], '016b')} from free frames, shifted right by 12: {format(process.tablica_stranicenja[page_num] >> 12, '04b')}")
-                print(process.tablica_stranicenja[page_num] >> 12)
-                print(frames)
-                frames.remove(process.tablica_stranicenja[page_num] >> 12)  # TODO TEST
+                frames.remove(int(format(process.tablica_stranicenja[page_num] >> 6, '010b')[::-1], 2) // PG_SIZE)
 
     if frames:
+        print(f"\t assigned frame number {frames[0]} at adress {hex(frames[0] * PG_SIZE)}")
         return frames[0]  # returning fid which is equivallent to frame ordinal number
 
     # else: find least recently used frame
-    lru_frame, min_time = 0, 32
-    print("GOTHERE")
+    lru_frame, min_time = None, 32
+    process_w_min, ret_pgid = None, None
     for process in processes:
-        process_w_min = process
         for pgid in range(len(process.tablica_stranicenja)):
             if not process.tablica_stranicenja[pgid] & 0x20: continue  # searching only pages present in frames
-            print(f"process.tablica_stranicenja[fid]: {format(process.tablica_stranicenja[pgid], '016b')}")
-            if int(format(process.tablica_stranicenja[pgid], '016b')[11:]) < min_time:
-                min_time = int(str(bin(process.tablica_stranicenja[pgid]))[2:][::-1][0:5])
-                lru_frame = int(str(int(format(process.tablica_stranicenja[pgid], '016b')) >> 6 )[::-1]) // 64
-                process_w_min = process
-                print("============================reassigned a frame")
-    process_w_min.tablica_stranicenja[lru_frame] &= 0xDF  # removing bit 5
-    # TODO should return FRAME_ID, and reset presence bit to 0
+            if not int(format(process.tablica_stranicenja[pgid], '016b')[11:], 2) < min_time: continue
+            min_time = int(format(process.tablica_stranicenja[pgid], '016b')[11:], 2)
+            lru_frame = int(format(process.tablica_stranicenja[pgid] >> 6, '010b')[::-1], 2) // PG_SIZE
+            process_w_min = process
+            ret_pgid = pgid
 
+    print(
+        f"\t removing page {hex(process_w_min.tablica_stranicenja[ret_pgid])} (ord. no. {ret_pgid}) process {process_w_min.pid} from memory")
+    print(f"\t lru of purged page: {min_time}")
+    process_w_min.tablica_stranicenja[ret_pgid] &= 0xFFDF  # reset presence bit
     return lru_frame
 
 
@@ -65,82 +58,96 @@ def main():
     arr_procesa = [Proces(i) for i in range(broj_procesa)]
     storage = [Frame(i) for i in range(broj_okvira)]
 
-    # TODO useful constant, clear 5th bit: &= 0xDF (6th, whatever)
     t = 0
     while True:
         for proces in arr_procesa:
-            print(f"proces: {proces}")
+            print("----------------------------------------------------")
+            print(f"process: {proces.pid}")
+            print(f"\t t: {t}")
             rnd_addr = rndint(MIN_PROCESS_SIZE, proces.vel_procesa)  # adresa koju proces zatreba
-            print(f"rnd_addr prije konverzije u binarni zapis s pomakom: {rnd_addr}")
-            # print(f"Needs to be in frame number {rnd_addr // VEL_STR} which is in binary {format(rnd_addr // VEL_STR, '04b')} with offset {rnd_addr % VEL_STR} which is in binary {format(rnd_addr % VEL_STR, '06b')}")
-            rnd_addr = int(format(rnd_addr // VEL_STR, '04b')[::-1] + format(rnd_addr % VEL_STR, '06b')[::-1], 2)
-            print(f"rnd_addr: {format(rnd_addr, '016b')}")
-            print(f"\ngenerated rnd_addr: {hex(rnd_addr)}")
+            rnd_addr = int(format(rnd_addr // PG_SIZE, '04b')[::-1] + format(rnd_addr % PG_SIZE, '06b')[::-1], 2)
             index = int(format(rnd_addr, '016b')[-7:-11:-1], 2)
-            print(f"That should be index {index}")
 
-            print(f"index: {index} <- is this correct? -> should be")
-
+            print(f"\t rnd addr:   {hex(rnd_addr)}")
+            print(f"\t in  binary: {format(rnd_addr, '016b')}")
+            offset = int(format(rnd_addr, '016b')[-6:], 2)
             if proces.tablica_stranicenja[index] & 0x20:
-                print("hit")  # TODO set lru variable, among other things
-            else:  # pronađi least recently used okvir - resetira se na nulu kad se koristi
-                print("miss")
-                # pid, fid = find_lru(arr_procesa, broj_okvira)
-                # into_frame = arr_procesa[pid].tablica_stranicenja[fid] >> 12
+                print("\t hit!")
+                frame_no = int(format(proces.tablica_stranicenja[index] >> 6, '010b')[::-1], 2) // PG_SIZE
+                print(f"\t page contents: {hex(proces.tablica_stranicenja[index])}")
+                print(f"\t at frame number {frame_no}")
+                print(f"\t which is adress {hex(frame_no * PG_SIZE)}")
+                print(f"\t exact byte adress: {frame_no * PG_SIZE << 6 | offset}")
+                print(f"\t data at adress: {storage[frame_no].data[offset]}")
+
+                storage[frame_no].increment(offset)
+                proces.tablica_stranicenja[index] = proces.tablica_stranicenja[index] & 0xFFE0 | t  # set time to t
+                storage[int(format(proces.tablica_stranicenja[index] >> 6, '010b')[::-1], 2) // PG_SIZE].store(
+                    proces.pid,
+                    index)
+            else:
+                print("\t miss!")
                 into_frame = find_lru(arr_procesa, broj_okvira)
-                print("---------exited find_lru")
-                print(f"Putting process {proces.pid} page {index} into frame {into_frame}")
-                proces.tablica_stranicenja[index] = int(format(into_frame * 64, '010b')[::-1],
-                                                        2) << 6 | 0x20 | t  # TODO ima li ovo smisla, tu treba bit 10 bitova koji odreduju adresu (read next line)
-                # ima - loadas stranicu u okvir koji je //64, a sama adresa onoga sto trazis
-                # na kraju bude preciznija, jos ima i smisla jer imas 010b pa ce bit 10 bitova + << 6
-                print(
-                    f"new state of proces.tablica_stranicenja[index]: {format(proces.tablica_stranicenja[index], '016b')}")
+                proces.tablica_stranicenja[index] = int(format(into_frame * PG_SIZE, '010b')[::-1], 2) << 6 | 0x20 | t
+                frame_no = int(format(proces.tablica_stranicenja[index] >> 6, '010b')[::-1], 2) // PG_SIZE
+                storage[int(format(proces.tablica_stranicenja[index] >> 6, '010b')[::-1], 2) // PG_SIZE].store(
+                    proces.pid,
+                    index)
+                print(f"\t assigned frame {frame_no} at adress {hex(frame_no * PG_SIZE)}")
+                print(f"\t page contents: {hex(proces.tablica_stranicenja[index])}")
+                print(f"\t exact byte adress {hex(frame_no * PG_SIZE << 6 | offset)}")
+                print(f"\t in binary {format(frame_no * PG_SIZE << 6 | offset, '016b')}")
+                print(f"\t data at adress: {storage[frame_no].data[offset]}")
+                storage[frame_no].increment(offset)
 
             t += 1
-            t %= 32  # TODO needs an if statement, update a few more things THIS MIGHT NOT NEED TO BE HERE - def no
-            # time.sleep(1)
+            if t == 32:  # trenutnoj stranici t postavi na 1, svim ostalim na 0
+                t = 0
+                for process_mod_t in arr_procesa:
+                    for pgid in range(len(process_mod_t.tablica_stranicenja)):
+                        process_mod_t.tablica_stranicenja[pgid] &= 0xFFE0
+                proces.tablica_stranicenja[index] &= 0xFFE1
+
+            time.sleep(1)
 
 
 class Proces:
     def __init__(self, pid):
         self.pid = pid
         self.vel_procesa = rndint(MIN_PROCESS_SIZE, MAX_PROCESS_SIZE)  # size in bytes
-        self.tablica_stranicenja = [0x0 for _ in range(math.ceil(self.vel_procesa / VEL_STR))]
-
-    def load(self, pid, pid_page_num):  # load pid process' page pid_page_num into this frame
-        pass  # TODO should it be here?
+        self.tablica_stranicenja = [0x0 for _ in range(math.ceil(self.vel_procesa / PG_SIZE))]
 
     def __str__(self):
-        a = f"Proces {self.pid} of size {self.vel_procesa}B with page table of size {len(self.tablica_stranicenja)} and table contents:"
+        a = f"pid: {self.pid}, size: {self.vel_procesa}, paging table:"
         for i in self.tablica_stranicenja:
             a += f"\n{format(i, '016b')}"
         return a
+
+    def __repr__(self):
+        return self.__str__()
 
 
 class Frame:
     def __init__(self, fid):
         self.fid = fid
-        self.pid = None  # pid of the process that is using this frame # TODO is this needed?
-        self.pid_page_num = None  # page number of the process that is using this frame
+        self.pid = None  # pid of the process that is using this frame
+        self.pid_page = None  # page number of the process that is using this frame
+        self.data = [0x0 for _ in range(PG_SIZE)]
 
     def __str__(self):
-        return f"Frame {self.fid} is used by process {self.pid} at page {self.pid_page_num}"
+        return f"Frame {self.fid} is used by process {self.pid} at page {self.pid_page}"
 
     def __repr__(self):
         return self.__str__()
 
-    def store(self, pid, pid_page_num):  # save pid process' page pid_page_num into this frame
+    def store(self, pid, pid_page):  # save pid process' page pid_page_num into this frame
         self.pid = pid
-        self.pid_page_num = pid_page_num
+        self.pid_page = pid_page
+
+    def increment(self, offset):
+        self.data[offset] += 1 if self.data[offset] < 254 else 0
 
 
 if __name__ == "__main__":
     main()
-
-    # KNOWN BUGS
-    # 1. frames.remove(fid) throws ValueError: list.remove(x): x not in list
-
-    # 2. find_lru(arr_procesa, broj_okvira) returns None if there are no frames free - implement fully
-    # 3.     proces.tablica_stranicenja[index] = int(str(bin(into_frame))[2:] + str(bin(rnd_addr))[-5:]) << 6 | 0x20 | t vraća
-    # ValueError: invalid literal for int() with base 10: '0b1111'
+    # TODO Prilikom zamjene odnosno izbacivanja stranica pretpostavite da je njihov sadržaj uvijek mijenjan te ga pohranite na disk - sredi to s diskom
