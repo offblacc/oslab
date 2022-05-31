@@ -51,6 +51,7 @@ def find_lru(processes, frames_num):
 
 
 def main():
+    sleep_time = int(input("enter sleep time, zero or one: "))
     global memory, drive, pgowners
     signal.signal(signal.SIGINT, sigint_handler)
 
@@ -119,7 +120,7 @@ def main():
                         process_mod_t.paging_table[pgid] &= 0xFFE0
                 proces.paging_table[index] &= 0xFFE1
 
-            time.sleep(0)
+            time.sleep(sleep_time)
 
 
 class Process:
@@ -156,7 +157,7 @@ class Frame:
         self.pid_page = pid_page
 
     def increment(self, offset):
-        self.data[offset] += 1 if self.data[offset] < 254 else 0
+        self.data[offset] = 0 if self.data[offset] == 254 else self.data[offset] + 1
 
 
 if __name__ == "__main__":
