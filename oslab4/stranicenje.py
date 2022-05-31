@@ -9,7 +9,7 @@ MIN_PROCESS_SIZE = 32
 MAX_PROCESS_SIZE = 10 * PG_SIZE
 drive: list
 memory: list
-pgowners: list
+frame_owners: list  # only memorises page index to which the frame coresponds, doesn't memorise which process
 
 
 def sigint_handler(signum, frame):
@@ -17,7 +17,7 @@ def sigint_handler(signum, frame):
 
 
 def find_lru(processes, frames_num):
-    global drive, pgowners
+    global drive, frame_owners
     frames = [i for i in range(frames_num)]
     for process in processes:
         for page_num in range(len(process.paging_table)):
@@ -40,11 +40,10 @@ def find_lru(processes, frames_num):
             process_w_min = process
             ret_pgid = pgid
 
-    print(
-        f"\t removing page {hex(process_w_min.paging_table[ret_pgid])} (no. {ret_pgid}) process {process_w_min.pid} from memory")
+    print(f"\t removing page {hex(process_w_min.paging_table[ret_pgid])} (no. {ret_pgid}) process {process_w_min.pid} from memory")
     print(f"\t lru of purged page: {min_time}")
 
-    drive[process_w_min.pid][pgowners[lru_frame]] = memory[lru_frame].data
+    drive[process_w_min.pid][frame_owners[lru_frame]] = memory[lru_frame].data
     print(f"\t saved frame changes to permanent storage")
     process_w_min.paging_table[ret_pgid] &= 0xFFDF  # reset presence bit
     return lru_frame
@@ -52,22 +51,23 @@ def find_lru(processes, frames_num):
 
 def main():
     sleep_time = int(input("enter sleep time, zero or one: "))
-    global memory, drive, pgowners
+    global memory, drive, frame_owners
     signal.signal(signal.SIGINT, sigint_handler)
 
     if len(sys.argv) != 3:
         print("Two arguments required!")
         exit(0)
-    broj_procesa, broj_okvira = map(int, sys.argv[1:])
 
+    broj_procesa, broj_okvira = map(int, sys.argv[1:])
     if broj_procesa < 1 or broj_okvira < 1:
         print("Invalid arguments!")
         exit(0)
+
     print(f"{broj_procesa} processes and {broj_okvira} frames in memory")
     arr_procesa = [Process(i) for i in range(broj_procesa)]
     memory = [Frame(i) for i in range(broj_okvira)]
     drive = [[0 for _ in range(proces.size)] for proces in arr_procesa]
-    pgowners = [-1 for _ in range(broj_okvira)]
+    frame_owners = [-1 for _ in range(broj_okvira)]
 
     t = 0
     while True:
@@ -110,7 +110,7 @@ def main():
                 print(f"\t in binary {format(frame_no * PG_SIZE << 6 | offset, '016b')}")
                 print(f"\t data at adress: {memory[frame_no].data[offset]}")
                 memory[frame_no].increment(offset)
-                pgowners[frame_no] = proces.pid
+                frame_owners[frame_no] = index  # storing !page index! of current process (used in find_lru)
 
             t += 1
             if t == 32:  # trenutnoj stranici t postavi na 1, svim ostalim na 0
